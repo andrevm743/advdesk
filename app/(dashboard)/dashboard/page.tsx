@@ -58,36 +58,40 @@ export default function DashboardPage() {
 
   const stats = [
     {
-      label: "Petições este mês",
-      value: petitionsThisMonth,
+      label: "Total de petições",
+      value: petitions.length,
+      sub: `${petitionsThisMonth} este mês`,
       icon: FileText,
       color: "text-primary",
       bg: "bg-primary/10",
-      href: "/nova-peticao",
+      href: "/historico?tab=peticoes",
     },
     {
-      label: "Análises realizadas",
+      label: "Total de análises",
       value: reviews.length,
+      sub: "análises de petição",
       icon: Search,
       color: "text-emerald-400",
       bg: "bg-emerald-400/10",
-      href: "/analise-peticao",
+      href: "/historico?tab=analises",
     },
     {
-      label: "Atendimentos ativos",
-      value: activeChats,
+      label: "Total de atendimentos",
+      value: chats.length,
+      sub: `${activeChats} ativo${activeChats !== 1 ? "s" : ""}`,
       icon: MessageSquare,
       color: "text-amber-400",
       bg: "bg-amber-400/10",
       href: "/atendimento",
     },
     {
-      label: "Total de peças",
-      value: petitions.length,
+      label: "Petições este mês",
+      value: petitionsThisMonth,
+      sub: "no mês atual",
       icon: TrendingUp,
       color: "text-blue-400",
       bg: "bg-blue-400/10",
-      href: "/historico",
+      href: "/nova-peticao",
     },
   ];
 
@@ -121,7 +125,8 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="text-3xl font-bold">{stat.value}</div>
-                <div className="text-xs text-muted-foreground mt-1">{stat.label}</div>
+                <div className="text-sm font-medium mt-1">{stat.label}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{stat.sub}</div>
               </CardContent>
             </Card>
           </Link>
