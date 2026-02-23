@@ -7,51 +7,107 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/lib/stores/authStore";
-import { listPetitions } from "@/lib/firebase/firestore";
-import { listJudgeReviews } from "@/lib/firebase/firestore";
-import { listChatSessions } from "@/lib/firebase/firestore";
+import {
+  listPetitions,
+  listJudgeReviews,
+  listChatSessions,
+  getTenantStats,
+  listPetitionsAll,
+  listJudgeReviewsAll,
+  listChatSessionsAll,
+} from "@/lib/firebase/firestore";
 import { LEGAL_AREA_LABELS } from "@/types";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 export default function DashboardPage() {
   const { user, tenantId } = useAuthStore();
+  const isAdmin = user?.role === "admin";
 
+  // ── Per-user queries (non-admin) ───────────────────────────────────────────
   const { data: petitions = [] } = useQuery({
     queryKey: ["petitions", tenantId, user?.uid],
     queryFn: () => listPetitions(tenantId!, user!.uid),
-    enabled: !!tenantId && !!user?.uid,
+    enabled: !!tenantId && !!user?.uid && !isAdmin,
   });
 
   const { data: reviews = [] } = useQuery({
     queryKey: ["reviews", tenantId, user?.uid],
     queryFn: () => listJudgeReviews(tenantId!, user!.uid),
-    enabled: !!tenantId && !!user?.uid,
+    enabled: !!tenantId && !!user?.uid && !isAdmin,
   });
 
   const { data: chats = [] } = useQuery({
     queryKey: ["chats", tenantId, user?.uid],
     queryFn: () => listChatSessions(tenantId!, user!.uid),
-    enabled: !!tenantId && !!user?.uid,
+    enabled: !!tenantId && !!user?.uid && !isAdmin,
   });
 
+  // ── Admin: tenant-wide aggregation ────────────────────────────────────────
+  const { data: tenantStats } = useQuery({
+    queryKey: ["tenantStats", tenantId],
+    queryFn: () => getTenantStats(tenantId!),
+    enabled: !!tenantId && isAdmin,
+  });
+
+  const { data: adminPetitions = [] } = useQuery({
+    queryKey: ["petitionsAll", tenantId],
+    queryFn: () => listPetitionsAll(tenantId!, 3),
+    enabled: !!tenantId && isAdmin,
+  });
+
+  const { data: adminReviews = [] } = useQuery({
+    queryKey: ["reviewsAll", tenantId],
+    queryFn: () => listJudgeReviewsAll(tenantId!, 2),
+    enabled: !!tenantId && isAdmin,
+  });
+
+  const { data: adminChats = [] } = useQuery({
+    queryKey: ["chatsAll", tenantId],
+    queryFn: () => listChatSessionsAll(tenantId!, 2),
+    enabled: !!tenantId && isAdmin,
+  });
+
+  // ── Derived values ─────────────────────────────────────────────────────────
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const petitionsThisMonth = petitions.filter((p) => {
-    const date = p.createdAt instanceof Date ? p.createdAt : new Date((p.createdAt as { seconds: number }).seconds * 1000);
-    return date >= startOfMonth;
-  }).length;
 
-  const activeChats = chats.filter((c) => c.status === "active").length;
+  const totalPetitions = isAdmin ? (tenantStats?.petitionsTotal ?? 0) : petitions.length;
+  const totalReviews = isAdmin ? (tenantStats?.reviewsTotal ?? 0) : reviews.length;
+  const totalChats = isAdmin ? (tenantStats?.chatsTotal ?? 0) : chats.length;
+
+  const petitionsThisMonth = isAdmin
+    ? (tenantStats?.petitionsThisMonth ?? 0)
+    : petitions.filter((p) => {
+        const date =
+          p.createdAt instanceof Date
+            ? p.createdAt
+            : new Date((p.createdAt as { seconds: number }).seconds * 1000);
+        return date >= startOfMonth;
+      }).length;
+
+  const activeChats = isAdmin
+    ? (tenantStats?.activeChats ?? 0)
+    : chats.filter((c) => c.status === "active").length;
+
+  const sourcePetitions = isAdmin ? adminPetitions : petitions;
+  const sourceReviews = isAdmin ? adminReviews : reviews;
+  const sourceChats = isAdmin ? adminChats : chats;
 
   const recentItems = [
-    ...petitions.slice(0, 3).map((p) => ({ ...p, _type: "petition" as const })),
-    ...reviews.slice(0, 2).map((r) => ({ ...r, _type: "review" as const })),
-    ...chats.slice(0, 2).map((c) => ({ ...c, _type: "chat" as const })),
+    ...sourcePetitions.slice(0, 3).map((p) => ({ ...p, _type: "petition" as const })),
+    ...sourceReviews.slice(0, 2).map((r) => ({ ...r, _type: "review" as const })),
+    ...sourceChats.slice(0, 2).map((c) => ({ ...c, _type: "chat" as const })),
   ]
     .sort((a, b) => {
-      const aDate = a.updatedAt instanceof Date ? a.updatedAt : new Date((a.updatedAt as { seconds: number }).seconds * 1000);
-      const bDate = b.updatedAt instanceof Date ? b.updatedAt : new Date((b.updatedAt as { seconds: number }).seconds * 1000);
+      const aDate =
+        a.updatedAt instanceof Date
+          ? a.updatedAt
+          : new Date((a.updatedAt as { seconds: number }).seconds * 1000);
+      const bDate =
+        b.updatedAt instanceof Date
+          ? b.updatedAt
+          : new Date((b.updatedAt as { seconds: number }).seconds * 1000);
       return bDate.getTime() - aDate.getTime();
     })
     .slice(0, 6);
@@ -59,7 +115,7 @@ export default function DashboardPage() {
   const stats = [
     {
       label: "Total de petições",
-      value: petitions.length,
+      value: totalPetitions,
       sub: `${petitionsThisMonth} este mês`,
       icon: FileText,
       color: "text-primary",
@@ -68,7 +124,7 @@ export default function DashboardPage() {
     },
     {
       label: "Total de análises",
-      value: reviews.length,
+      value: totalReviews,
       sub: "análises de petição",
       icon: Search,
       color: "text-emerald-400",
@@ -77,7 +133,7 @@ export default function DashboardPage() {
     },
     {
       label: "Total de atendimentos",
-      value: chats.length,
+      value: totalChats,
       sub: `${activeChats} ativo${activeChats !== 1 ? "s" : ""}`,
       icon: MessageSquare,
       color: "text-amber-400",
@@ -110,6 +166,11 @@ export default function DashboardPage() {
         </h1>
         <p className="text-muted-foreground mt-1">
           {format(new Date(), "EEEE, d 'de' MMMM 'de' yyyy", { locale: ptBR })}
+          {isAdmin && (
+            <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+              Total do Escritório
+            </span>
+          )}
         </p>
       </div>
 
@@ -161,7 +222,7 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-              Atividade recente
+              Atividade recente{isAdmin ? " — Escritório" : ""}
             </h2>
             <Link href="/historico">
               <Button variant="ghost" size="sm" className="text-xs">

@@ -53,8 +53,8 @@ import {
 import { uploadFile, deleteFile } from "@/lib/firebase/storage";
 import { auth } from "@/lib/firebase/config";
 import app from "@/lib/firebase/config";
-import type { OfficeSettings, AIPrompts, KnowledgeDocument, UserProfile, KnowledgeCategory } from "@/types";
-import { KNOWLEDGE_CATEGORY_LABELS } from "@/types";
+import type { OfficeSettings, AIPrompts, KnowledgeDocument, UserProfile, KnowledgeCategory, LegalArea } from "@/types";
+import { KNOWLEDGE_CATEGORY_LABELS, LEGAL_AREA_LABELS } from "@/types";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -306,7 +306,8 @@ function TabKnowledge({ tenantId, userId }: { tenantId: string; userId: string }
     name: string;
     category: KnowledgeCategory;
     file: File | null;
-  }>({ name: "", category: "modelos", file: null });
+    areas: Array<LegalArea | "geral">;
+  }>({ name: "", category: "modelos", file: null, areas: [] });
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -332,6 +333,7 @@ function TabKnowledge({ tenantId, userId }: { tenantId: string; userId: string }
       const id = await addKnowledgeDoc(tenantId, userId, {
         name: newDoc.name.trim(),
         category: newDoc.category,
+        areas: newDoc.areas.length > 0 ? newDoc.areas : undefined,
         storagePath: path,
         fileUrl: url,
         size: newDoc.file.size,
@@ -343,6 +345,7 @@ function TabKnowledge({ tenantId, userId }: { tenantId: string; userId: string }
         userId,
         name: newDoc.name.trim(),
         category: newDoc.category,
+        areas: newDoc.areas.length > 0 ? newDoc.areas : undefined,
         storagePath: path,
         fileUrl: url,
         size: newDoc.file.size,
@@ -350,7 +353,7 @@ function TabKnowledge({ tenantId, userId }: { tenantId: string; userId: string }
         createdAt: new Date(),
       };
       setDocs((d) => [added, ...d]);
-      setNewDoc({ name: "", category: "modelos", file: null });
+      setNewDoc({ name: "", category: "modelos", file: null, areas: [] });
       setAddOpen(false);
       toast.success("Documento adicionado à base de conhecimento.");
     } catch {
@@ -429,6 +432,15 @@ function TabKnowledge({ tenantId, userId }: { tenantId: string; userId: string }
                     {KNOWLEDGE_CATEGORY_LABELS[doc.category]} · {formatSize(doc.size)} ·{" "}
                     {formatDate(doc.createdAt)}
                   </p>
+                  {doc.areas && doc.areas.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {doc.areas.map((a) => (
+                        <span key={a} className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                          {a === "geral" ? "Geral" : (LEGAL_AREA_LABELS as Record<string, string>)[a] ?? a}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <Badge variant="secondary" className="shrink-0 text-xs">
                   {KNOWLEDGE_CATEGORY_LABELS[doc.category]}
@@ -514,6 +526,36 @@ function TabKnowledge({ tenantId, userId }: { tenantId: string; userId: string }
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Áreas relacionadas{" "}
+                <span className="text-muted-foreground text-xs font-normal">
+                  (vazio = usado em todas as áreas)
+                </span>
+              </Label>
+              <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto rounded-lg border border-border p-3 bg-secondary/30">
+                {([["geral", "Geral (todas as áreas)"], ...Object.entries(LEGAL_AREA_LABELS)] as [string, string][]).map(
+                  ([k, label]) => (
+                    <label key={k} className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="rounded"
+                        checked={newDoc.areas.includes(k as LegalArea | "geral")}
+                        onChange={(e) => {
+                          const area = k as LegalArea | "geral";
+                          if (e.target.checked) {
+                            setNewDoc((d) => ({ ...d, areas: [...d.areas, area] }));
+                          } else {
+                            setNewDoc((d) => ({ ...d, areas: d.areas.filter((a) => a !== area) }));
+                          }
+                        }}
+                      />
+                      <span className="truncate">{label}</span>
+                    </label>
+                  )
+                )}
+              </div>
             </div>
           </div>
           <DialogFooter>

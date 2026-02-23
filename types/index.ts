@@ -166,6 +166,7 @@ export interface Petition {
   structure?: PetitionStructure;
   content?: string;
   docxUrl?: string;
+  docxPath?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -199,6 +200,7 @@ export interface JudgeReview {
     sugestoes: Array<{ titulo: string; texto: string }>;
   };
   docxUrl?: string;
+  docxPath?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -215,6 +217,7 @@ export interface ChatSession {
   lastMessage?: string;
   lastMessageAt?: Date;
   reportUrl?: string;
+  reportPath?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -269,6 +272,7 @@ export interface KnowledgeDocument {
   userId: string;
   name: string;
   category: KnowledgeCategory;
+  areas?: Array<LegalArea | "geral">;
   storagePath: string;
   fileUrl?: string;
   size: number;

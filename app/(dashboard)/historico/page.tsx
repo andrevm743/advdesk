@@ -6,16 +6,19 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileText, Search, MessageSquare, Download, ExternalLink } from "lucide-react";
+import { FileText, Search, MessageSquare, Download, ExternalLink, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { listPetitions, listJudgeReviews, listChatSessions } from "@/lib/firebase/firestore";
 import { LEGAL_AREA_LABELS, type LegalArea } from "@/types";
+import app from "@/lib/firebase/config";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Rascunho",
@@ -47,6 +50,26 @@ export default function HistoricoPage() {
 
   const [search, setSearch] = useState("");
   const [areaFilter, setAreaFilter] = useState<string>("all");
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  async function handleDownload(itemId: string, storagePath?: string, fallbackUrl?: string) {
+    // New docs have storagePath; old docs only have a signed URL
+    if (!storagePath) {
+      if (fallbackUrl) window.open(fallbackUrl, "_blank");
+      return;
+    }
+    setDownloadingId(itemId);
+    try {
+      const functions = getFunctions(app, "us-central1");
+      const getUrlFn = httpsCallable<{ path: string }, { url: string }>(functions, "getDownloadUrlFn");
+      const result = await getUrlFn({ path: storagePath });
+      window.open(result.data.url, "_blank");
+    } catch {
+      toast.error("Erro ao obter link de download. Tente novamente.");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   const { data: petitions = [], isLoading: loadingPetitions } = useQuery({
     queryKey: ["petitions", tenantId, user?.uid],
@@ -169,13 +192,18 @@ export default function HistoricoPage() {
                       <Badge variant={(STATUS_VARIANT[p.status] ?? "secondary") as "default" | "secondary" | "success" | "destructive" | "warning" | "info"}>
                         {STATUS_LABELS[p.status] ?? p.status}
                       </Badge>
-                      {p.docxUrl && (
+                      {(p.docxPath || p.docxUrl) && (
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => window.open(p.docxUrl!, "_blank")}
+                          disabled={downloadingId === p.id}
+                          onClick={() => handleDownload(p.id, p.docxPath, p.docxUrl)}
                         >
-                          <Download className="h-4 w-4 mr-1" />
+                          {downloadingId === p.id ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4 mr-1" />
+                          )}
                           DOCX
                         </Button>
                       )}
@@ -228,13 +256,18 @@ export default function HistoricoPage() {
                             Êxito: {prob}
                           </Badge>
                         )}
-                        {r.docxUrl && (
+                        {(r.docxPath || r.docxUrl) && (
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => window.open(r.docxUrl!, "_blank")}
+                            disabled={downloadingId === r.id}
+                            onClick={() => handleDownload(r.id, r.docxPath, r.docxUrl)}
                           >
-                            <Download className="h-4 w-4 mr-1" />
+                            {downloadingId === r.id ? (
+                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                              <Download className="h-4 w-4 mr-1" />
+                            )}
                             Relatório
                           </Button>
                         )}
@@ -293,13 +326,18 @@ export default function HistoricoPage() {
                           Abrir
                         </Button>
                       </Link>
-                      {c.reportUrl && (
+                      {(c.reportPath || c.reportUrl) && (
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => window.open(c.reportUrl!, "_blank")}
+                          disabled={downloadingId === c.id}
+                          onClick={() => handleDownload(c.id, c.reportPath, c.reportUrl)}
                         >
-                          <Download className="h-4 w-4" />
+                          {downloadingId === c.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4" />
+                          )}
                         </Button>
                       )}
                     </div>

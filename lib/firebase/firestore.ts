@@ -13,6 +13,7 @@ import {
   limit,
   startAfter,
   serverTimestamp,
+  getCountFromServer,
   type QueryConstraint,
   type DocumentSnapshot,
   onSnapshot,
@@ -308,4 +309,51 @@ export async function updateUserRole(
 
 export async function deactivateUser(tenantId: string, userId: string): Promise<void> {
   await updateDoc(doc(db, "tenants", tenantId, "users", userId), { active: false });
+}
+
+// ─── Tenant-wide stats (admin) ─────────────────────────────────────────────────
+export async function getTenantStats(tenantId: string): Promise<{
+  petitionsTotal: number;
+  reviewsTotal: number;
+  chatsTotal: number;
+  activeChats: number;
+  petitionsThisMonth: number;
+}> {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const [petSnap, revSnap, chatSnap, activeChatSnap, monthPetSnap] = await Promise.all([
+    getCountFromServer(tenantCol(tenantId, "petitions")),
+    getCountFromServer(tenantCol(tenantId, "judgeReviews")),
+    getCountFromServer(tenantCol(tenantId, "chatSessions")),
+    getCountFromServer(query(tenantCol(tenantId, "chatSessions"), where("status", "==", "active"))),
+    getCountFromServer(query(tenantCol(tenantId, "petitions"), where("createdAt", ">=", startOfMonth))),
+  ]);
+  return {
+    petitionsTotal: petSnap.data().count,
+    reviewsTotal: revSnap.data().count,
+    chatsTotal: chatSnap.data().count,
+    activeChats: activeChatSnap.data().count,
+    petitionsThisMonth: monthPetSnap.data().count,
+  };
+}
+
+export async function listPetitionsAll(tenantId: string, pageSize = 3): Promise<Petition[]> {
+  const snap = await getDocs(
+    query(tenantCol(tenantId, "petitions"), orderBy("createdAt", "desc"), limit(pageSize))
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Petition);
+}
+
+export async function listJudgeReviewsAll(tenantId: string, pageSize = 2): Promise<JudgeReview[]> {
+  const snap = await getDocs(
+    query(tenantCol(tenantId, "judgeReviews"), orderBy("createdAt", "desc"), limit(pageSize))
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as JudgeReview);
+}
+
+export async function listChatSessionsAll(tenantId: string, pageSize = 2): Promise<ChatSession[]> {
+  const snap = await getDocs(
+    query(tenantCol(tenantId, "chatSessions"), orderBy("updatedAt", "desc"), limit(pageSize))
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as ChatSession);
 }

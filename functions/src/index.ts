@@ -70,14 +70,41 @@ interface TenantOfficeSettings {
   address?: string;
 }
 
-async function getKnowledgeBasePaths(tenantId: string): Promise<string[]> {
-  const snap = await db
-    .collection("tenants")
-    .doc(tenantId)
-    .collection("knowledgeBase")
-    .orderBy("createdAt", "desc")
-    .limit(5)
-    .get();
+// ─── Knowledge base: area-filtered paths ──────────────────────────────────────
+// Returns storage paths of KB docs matching the given legal area.
+// Falls back to "geral" docs if no area-specific docs exist.
+// If no area is given, returns the 5 most recent docs.
+async function getKnowledgeBasePaths(tenantId: string, area?: string): Promise<string[]> {
+  const kbRef = db.collection("tenants").doc(tenantId).collection("knowledgeBase");
+
+  if (area) {
+    // Try area-specific docs
+    const areaSnap = await kbRef
+      .where("areas", "array-contains", area)
+      .limit(5)
+      .get();
+
+    if (!areaSnap.empty) {
+      return areaSnap.docs.map((d) => d.data().storagePath as string).filter(Boolean);
+    }
+
+    // Fallback: "geral" docs (apply to all areas)
+    const geralSnap = await kbRef
+      .where("areas", "array-contains", "geral")
+      .limit(5)
+      .get();
+
+    if (!geralSnap.empty) {
+      return geralSnap.docs.map((d) => d.data().storagePath as string).filter(Boolean);
+    }
+
+    // Last resort: any docs without areas set (legacy / no areas tag)
+    const legacySnap = await kbRef.orderBy("createdAt", "desc").limit(5).get();
+    return legacySnap.docs.map((d) => d.data().storagePath as string).filter(Boolean);
+  }
+
+  // No area: return 5 most recent docs
+  const snap = await kbRef.orderBy("createdAt", "desc").limit(5).get();
   return snap.docs.map((d) => d.data().storagePath as string).filter(Boolean);
 }
 
@@ -118,7 +145,7 @@ export const analyzeInitialCaseFn = onCall(
 
     try {
       const [kbPaths, settings] = await Promise.all([
-        getKnowledgeBasePaths(tenantId),
+        getKnowledgeBasePaths(tenantId, area),
         getTenantSettings(tenantId),
       ]);
 
@@ -175,7 +202,7 @@ export const buildPetitionStructureFn = onCall(
 
     try {
       const [kbPaths, settings] = await Promise.all([
-        getKnowledgeBasePaths(tenantId),
+        getKnowledgeBasePaths(tenantId, area),
         getTenantSettings(tenantId),
       ]);
 
@@ -253,9 +280,9 @@ export const generatePetitionFn = onCall(
       const title = `${petitionType} — ${area}`;
       const docxBuffer = await generatePetitionDocx(petitionText, title, area, petitionType, settings.office);
 
-      // Upload DOCX to Storage
+      // Upload DOCX to Storage — returns { url, path }
       const fileName = `peticao_${petitionId}_${Date.now()}.docx`;
-      const docxUrl = await uploadDocxToStorage(docxBuffer, tenantId, "petitions", fileName);
+      const { url: docxUrl, path: docxPath } = await uploadDocxToStorage(docxBuffer, tenantId, "petitions", fileName);
 
       // Update Firestore
       await db
@@ -266,11 +293,12 @@ export const generatePetitionFn = onCall(
         .update({
           content: petitionText,
           docxUrl,
+          docxPath,
           status: "completed",
           updatedAt: FieldValue.serverTimestamp(),
         });
 
-      return { success: true, content: petitionText, docxUrl };
+      return { success: true, content: petitionText, docxUrl, docxPath };
     } catch (err) {
       logger.error("generatePetition error:", err);
       await db
@@ -372,7 +400,7 @@ export const generateJudgeReportFn = onCall(
       // Generate DOCX
       const docxBuffer = await generateJudgeReportDocx(report, description, settings.office);
       const fileName = `relatorio_${reviewId}_${Date.now()}.docx`;
-      const docxUrl = await uploadDocxToStorage(docxBuffer, tenantId, "judge-reports", fileName);
+      const { url: docxUrl, path: docxPath } = await uploadDocxToStorage(docxBuffer, tenantId, "judge-reports", fileName);
 
       await db
         .collection("tenants")
@@ -382,11 +410,12 @@ export const generateJudgeReportFn = onCall(
         .update({
           report,
           docxUrl,
+          docxPath,
           status: "completed",
           updatedAt: FieldValue.serverTimestamp(),
         });
 
-      return { success: true, report, docxUrl };
+      return { success: true, report, docxUrl, docxPath };
     } catch (err) {
       logger.error("generateJudgeReport error:", err);
       throw new HttpsError("internal", "Erro ao gerar o relatório. Tente novamente.");
@@ -414,7 +443,7 @@ export const sendChatMessageFn = onCall(
 
     try {
       const [kbPaths, settings] = await Promise.all([
-        getKnowledgeBasePaths(tenantId),
+        getKnowledgeBasePaths(tenantId, area),
         getTenantSettings(tenantId),
       ]);
 
@@ -590,7 +619,7 @@ ${report.proximos_passos.map((p, i) => `${i + 1}. ${p}`).join("\n")}`;
         settings.office
       );
       const fileName = `relatorio_atendimento_${sessionId}_${Date.now()}.docx`;
-      const docxUrl = await uploadDocxToStorage(docxBuffer, tenantId, "chat-reports", fileName);
+      const { url: reportUrl, path: reportPath } = await uploadDocxToStorage(docxBuffer, tenantId, "chat-reports", fileName);
 
       await db
         .collection("tenants")
@@ -598,11 +627,12 @@ ${report.proximos_passos.map((p, i) => `${i + 1}. ${p}`).join("\n")}`;
         .collection("chatSessions")
         .doc(sessionId)
         .update({
-          reportUrl: docxUrl,
+          reportUrl,
+          reportPath,
           updatedAt: FieldValue.serverTimestamp(),
         });
 
-      return { success: true, report, docxUrl };
+      return { success: true, report, docxUrl: reportUrl, reportPath };
     } catch (err) {
       logger.error("generateChatReport error:", err);
       throw new HttpsError("internal", "Erro ao gerar relatório. Tente novamente.");
@@ -678,6 +708,102 @@ export const inviteUserFn = onCall(
       // Generate password reset link (user will set their password via this link)
       const resetLink = await admin.auth().generatePasswordResetLink(email);
 
+      // ── Send branded email via nodemailer (optional SMTP) ──────────────────
+      const smtpUser = process.env.SMTP_USER;
+      const smtpPass = process.env.SMTP_PASS;
+
+      if (smtpUser && smtpPass) {
+        try {
+          const officeDoc = await db
+            .collection("tenants")
+            .doc(tenantId)
+            .collection("settings")
+            .doc("office")
+            .get();
+          const officeName: string = officeDoc.data()?.name ?? "ADVDESK";
+
+          const smtpHost = process.env.SMTP_HOST ?? "smtp.gmail.com";
+          const smtpPort = parseInt(process.env.SMTP_PORT ?? "587");
+
+          const nodemailer = await import("nodemailer");
+          const transporter = nodemailer.createTransport({
+            host: smtpHost,
+            port: smtpPort,
+            secure: smtpPort === 465,
+            auth: { user: smtpUser, pass: smtpPass },
+          });
+
+          const roleLabels: Record<string, string> = {
+            admin: "Administrador",
+            lawyer: "Advogado",
+            assistant: "Assistente",
+          };
+
+          await transporter.sendMail({
+            from: `"${officeName}" <${smtpUser}>`,
+            to: email,
+            subject: `Você foi convidado para o ADVDESK — ${officeName}`,
+            html: `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:40px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <tr>
+          <td style="background:#6366F1;padding:32px 40px;text-align:center;">
+            <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;">${officeName}</h1>
+            <p style="margin:8px 0 0;color:#c7d2fe;font-size:14px;">Sistema de Gestão Jurídica com IA</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:40px;">
+            <h2 style="margin:0 0 16px;color:#0f172a;font-size:20px;">Olá, ${name}!</h2>
+            <p style="margin:0 0 12px;color:#475569;font-size:15px;line-height:1.6;">
+              Você foi convidado para acessar o <strong>ADVDESK</strong> — ${officeName} como <strong>${roleLabels[role] ?? role}</strong>.
+            </p>
+            <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;">
+              Clique no botão abaixo para definir sua senha e acessar o sistema:
+            </p>
+            <table cellpadding="0" cellspacing="0" style="margin:0 0 32px;">
+              <tr>
+                <td style="background:#6366F1;border-radius:8px;padding:14px 28px;">
+                  <a href="${resetLink}" style="color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">
+                    Definir minha senha →
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;">
+              Se o botão não funcionar, copie e cole este link no navegador:
+            </p>
+            <p style="margin:0;word-break:break-all;color:#6366F1;font-size:12px;">${resetLink}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="border-top:1px solid #e2e8f0;padding:20px 40px;text-align:center;">
+            <p style="margin:0;color:#94a3b8;font-size:12px;">
+              Este convite foi gerado pelo sistema ADVDESK · ${officeName}
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+          });
+
+          logger.info(`Invite email sent to ${email}`);
+        } catch (emailErr) {
+          // Non-fatal: log and continue — link is still returned to admin
+          logger.warn(`Failed to send invite email to ${email}:`, emailErr);
+        }
+      } else {
+        logger.info("SMTP not configured; skipping invite email. Admin can share the reset link manually.");
+      }
+
       return { success: true, uid: userRecord.uid, resetLink };
     } catch (err) {
       logger.error("inviteUser error:", err);
@@ -723,6 +849,42 @@ export const deactivateUserFn = onCall(
     } catch (err) {
       logger.error("deactivateUser error:", err);
       throw new HttpsError("internal", "Erro ao desativar usuário. Tente novamente.");
+    }
+  }
+);
+
+// ─── DOWNLOAD: Get fresh signed URL ───────────────────────────────────────────
+// Validates tenant ownership via path prefix, then generates a fresh 7-day signed URL.
+export const getDownloadUrlFn = onCall(
+  { timeoutSeconds: 30 },
+  async (request) => {
+    const { tenantId } = await validateAuth(request.auth);
+
+    const { path } = request.data as { path: string };
+    if (!path) throw new HttpsError("invalid-argument", "path é obrigatório.");
+
+    // Security: ensure the file belongs to this tenant
+    if (!path.startsWith(`tenants/${tenantId}/`)) {
+      throw new HttpsError("permission-denied", "Acesso negado ao arquivo solicitado.");
+    }
+
+    try {
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(path);
+
+      const [exists] = await file.exists();
+      if (!exists) throw new HttpsError("not-found", "Arquivo não encontrado.");
+
+      const [signedUrl] = await file.getSignedUrl({
+        action: "read",
+        expires: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+
+      return { url: signedUrl };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      logger.error("getDownloadUrl error:", err);
+      throw new HttpsError("internal", "Erro ao gerar link de download.");
     }
   }
 );

@@ -369,10 +369,10 @@ export async function uploadDocxToStorage(
   tenantId: string,
   folder: string,
   fileName: string
-): Promise<string> {
+): Promise<{ url: string; path: string }> {
   const bucket = admin.storage().bucket();
-  const path = `tenants/${tenantId}/${folder}/${fileName}`;
-  const file = bucket.file(path);
+  const storagePath = `tenants/${tenantId}/${folder}/${fileName}`;
+  const file = bucket.file(storagePath);
 
   await file.save(buffer, {
     metadata: {
@@ -382,9 +382,9 @@ export async function uploadDocxToStorage(
 
   const [signedUrl] = await file.getSignedUrl({
     action: "read",
-    expires: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+    expires: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days (initial URL; refresh via getDownloadUrlFn)
   });
 
-  logger.info(`DOCX uploaded to ${path}`);
-  return signedUrl;
+  logger.info(`DOCX uploaded to ${storagePath}`);
+  return { url: signedUrl, path: storagePath };
 }
