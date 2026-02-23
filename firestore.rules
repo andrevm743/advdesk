@@ -1,0 +1,112 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── User index ─────────────────────────────────────────────────────────────
+    // Permite que o usuário leia e escreva seu próprio índice (necessário no bootstrap)
+    match /userIndex/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Rate limits (Cloud Functions only) ────────────────────────────────────
+    match /rateLimits/{docId} {
+      allow read, write: if false;
+    }
+
+    // ── Tenant data ───────────────────────────────────────────────────────────
+    match /tenants/{tenantId} {
+      // Permite criar o próprio tenant de bootstrap (tenant_<uid>)
+      allow create: if request.auth != null
+        && tenantId == ('tenant_' + request.auth.uid);
+      allow read: if request.auth != null && isTenantMember(tenantId);
+      allow update: if request.auth != null && isTenantAdmin(tenantId);
+      allow delete: if false;
+
+      // Users within tenant
+      match /users/{userId} {
+        allow read: if request.auth != null && isTenantMember(tenantId);
+
+        // Permite criar o próprio perfil no tenant de bootstrap
+        allow create: if request.auth != null && (
+          // Bootstrap: criando o próprio perfil no tenant_<uid>
+          (request.auth.uid == userId && tenantId == ('tenant_' + request.auth.uid))
+          // Admin adicionando outro usuário
+          || isTenantAdmin(tenantId)
+        );
+
+        allow update: if request.auth != null
+          && (isTenantAdmin(tenantId) || request.auth.uid == userId);
+        allow delete: if request.auth != null && isTenantAdmin(tenantId);
+      }
+
+      // Petitions
+      match /petitions/{petitionId} {
+        allow read: if request.auth != null && isTenantMember(tenantId);
+        allow create: if request.auth != null
+          && isTenantMember(tenantId)
+          && request.resource.data.userId == request.auth.uid;
+        allow update: if request.auth != null
+          && isTenantMember(tenantId)
+          && (resource.data.userId == request.auth.uid || isTenantAdmin(tenantId));
+        allow delete: if request.auth != null && isTenantAdmin(tenantId);
+      }
+
+      // Judge reviews
+      match /judgeReviews/{reviewId} {
+        allow read: if request.auth != null && isTenantMember(tenantId);
+        allow create: if request.auth != null
+          && isTenantMember(tenantId)
+          && request.resource.data.userId == request.auth.uid;
+        allow update: if request.auth != null
+          && isTenantMember(tenantId)
+          && (resource.data.userId == request.auth.uid || isTenantAdmin(tenantId));
+        allow delete: if request.auth != null && isTenantAdmin(tenantId);
+      }
+
+      // Settings (office profile, AI prompts)
+      match /settings/{docId} {
+        allow read: if request.auth != null && isTenantMember(tenantId);
+        allow write: if request.auth != null && isTenantAdmin(tenantId);
+      }
+
+      // Knowledge base documents
+      match /knowledgeBase/{docId} {
+        allow read: if request.auth != null && isTenantMember(tenantId);
+        allow create: if request.auth != null && isTenantMember(tenantId)
+          && request.resource.data.userId == request.auth.uid;
+        allow delete: if request.auth != null && isTenantAdmin(tenantId);
+        allow update: if false;
+      }
+
+      // Chat sessions
+      match /chatSessions/{sessionId} {
+        allow read: if request.auth != null && isTenantMember(tenantId);
+        allow create: if request.auth != null
+          && isTenantMember(tenantId)
+          && request.resource.data.userId == request.auth.uid;
+        allow update: if request.auth != null
+          && isTenantMember(tenantId)
+          && (resource.data.userId == request.auth.uid || isTenantAdmin(tenantId));
+        allow delete: if request.auth != null && isTenantAdmin(tenantId);
+
+        match /messages/{messageId} {
+          allow read: if request.auth != null && isTenantMember(tenantId);
+          allow create: if request.auth != null && isTenantMember(tenantId);
+          allow update, delete: if false;
+        }
+      }
+    }
+
+    // ── Helper functions ───────────────────────────────────────────────────────
+    function isTenantMember(tenantId) {
+      return exists(/databases/$(database)/documents/tenants/$(tenantId)/users/$(request.auth.uid));
+    }
+
+    function isTenantAdmin(tenantId) {
+      let user = get(/databases/$(database)/documents/tenants/$(tenantId)/users/$(request.auth.uid));
+      return user != null && user.data.role == 'admin';
+    }
+  }
+}
