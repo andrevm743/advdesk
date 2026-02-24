@@ -13,7 +13,7 @@ function getGenAI(): GoogleGenerativeAI {
   return genAI;
 }
 
-const FLASH_MODEL = "gemini-2.0-flash";
+const FLASH_MODEL = "gemini-2.0-flash-001";
 
 // ─── Download file from Storage and convert to base64 ─────────────────────────
 async function fileToGeminiPart(storagePath: string, mimeType: string): Promise<Part> {

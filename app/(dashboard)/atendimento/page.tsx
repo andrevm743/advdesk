@@ -220,9 +220,11 @@ export default function AtendimentoPage() {
             </div>
           ) : (
             filteredSessions.map((session) => {
-              const date = session.updatedAt instanceof Date
-                ? session.updatedAt
-                : new Date((session.updatedAt as { seconds: number }).seconds * 1000);
+              const date = session.updatedAt
+                ? (session.updatedAt instanceof Date
+                    ? session.updatedAt
+                    : new Date((session.updatedAt as { seconds: number }).seconds * 1000))
+                : new Date();
               return (
                 <button
                   key={session.id}
@@ -294,9 +296,11 @@ export default function AtendimentoPage() {
               </div>
             )}
             {messages.map((msg) => {
-              const date = msg.createdAt instanceof Date
-                ? msg.createdAt
-                : new Date((msg.createdAt as { seconds: number }).seconds * 1000);
+              const date = msg.createdAt
+                ? (msg.createdAt instanceof Date
+                    ? msg.createdAt
+                    : new Date((msg.createdAt as { seconds: number }).seconds * 1000))
+                : new Date();
               return (
                 <div
                   key={msg.id}

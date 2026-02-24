@@ -79,10 +79,11 @@ export default function DashboardPage() {
   const petitionsThisMonth = isAdmin
     ? (tenantStats?.petitionsThisMonth ?? 0)
     : petitions.filter((p) => {
-        const date =
-          p.createdAt instanceof Date
-            ? p.createdAt
-            : new Date((p.createdAt as { seconds: number }).seconds * 1000);
+        const date = p.createdAt
+          ? (p.createdAt instanceof Date
+              ? p.createdAt
+              : new Date((p.createdAt as { seconds: number }).seconds * 1000))
+          : new Date();
         return date >= startOfMonth;
       }).length;
 
@@ -100,14 +101,16 @@ export default function DashboardPage() {
     ...sourceChats.slice(0, 2).map((c) => ({ ...c, _type: "chat" as const })),
   ]
     .sort((a, b) => {
-      const aDate =
-        a.updatedAt instanceof Date
-          ? a.updatedAt
-          : new Date((a.updatedAt as { seconds: number }).seconds * 1000);
-      const bDate =
-        b.updatedAt instanceof Date
-          ? b.updatedAt
-          : new Date((b.updatedAt as { seconds: number }).seconds * 1000);
+      const aDate = a.updatedAt
+        ? (a.updatedAt instanceof Date
+            ? a.updatedAt
+            : new Date((a.updatedAt as { seconds: number }).seconds * 1000))
+        : new Date(0);
+      const bDate = b.updatedAt
+        ? (b.updatedAt instanceof Date
+            ? b.updatedAt
+            : new Date((b.updatedAt as { seconds: number }).seconds * 1000))
+        : new Date(0);
       return bDate.getTime() - aDate.getTime();
     })
     .slice(0, 6);
@@ -247,10 +250,11 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-2">
               {recentItems.map((item) => {
-                const date =
-                  item.updatedAt instanceof Date
-                    ? item.updatedAt
-                    : new Date((item.updatedAt as { seconds: number }).seconds * 1000);
+                const date = item.updatedAt
+                  ? (item.updatedAt instanceof Date
+                      ? item.updatedAt
+                      : new Date((item.updatedAt as { seconds: number }).seconds * 1000))
+                  : new Date();
 
                 if (item._type === "petition") {
                   return (

@@ -1,10 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Firebase requires browser APIs — disable static pre-rendering
-  // Pages are rendered dynamically per-request
-  output: "standalone",
   experimental: {
-    serverActions: { allowedOrigins: ["localhost:3000"] },
+    serverActions: {
+      allowedOrigins: ["localhost:3000", "localhost:3002", "*.vercel.app"],
+    },
   },
   images: {
     remotePatterns: [

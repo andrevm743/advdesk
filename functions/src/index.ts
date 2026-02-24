@@ -10,7 +10,7 @@ setGlobalOptions({
   region: "us-central1",
   timeoutSeconds: 300,
   memory: "1GiB",
-  secrets: ["GEMINI_API_KEY", "ANTHROPIC_API_KEY"],
+  secrets: ["GEMINI_API_KEY", "ANTHROPIC_API_KEY", "SMTP_USER", "SMTP_PASS"],
 });
 
 import { analyzeInitialCase, buildPetitionStructure, analyzeForJudge, generateChatReport } from "./services/geminiService";
